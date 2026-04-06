@@ -1,10 +1,13 @@
 import { useRef, useEffect, useState } from "react";
+import useSocket from "../hooks/useSocket";
 
-export default function Canvas({isPencil}) {
+export default function Canvas({ isPencil }) {
   const canvasRef = useRef(null);
   const contextRef = useRef(null);
+  const prevPoint = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
+  // 🎨 Setup canvas
   useEffect(() => {
     const canvas = canvasRef.current;
 
@@ -14,37 +17,75 @@ export default function Canvas({isPencil}) {
     const context = canvas.getContext("2d");
     context.lineCap = "round";
     context.lineJoin = "round";
-    context.strokeStyle = isPencil ? "white" : "blue";
     context.lineWidth = 3;
+    context.strokeStyle = isPencil ? "white" : "black";
 
     contextRef.current = context;
   }, []);
 
-  useEffect(()=>{
-    contextRef.current.strokeStyle = isPencil ? "white" : "blue";
-  }, [isPencil])
+  // ✏️ Update color
+  useEffect(() => {
+    if (contextRef.current) {
+      contextRef.current.strokeStyle = isPencil ? "white" : "black";
+    }
+  }, [isPencil]);
 
+  // 🌐 Handle incoming strokes
+  const handleIncomingDraw = (data) => {
+    const { x, y, prevX, prevY, color } = data;
+
+    const ctx = contextRef.current;
+    if (!ctx) return;
+
+    ctx.strokeStyle = color;
+
+    ctx.beginPath();
+    ctx.moveTo(prevX, prevY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const { sendMessage } = useSocket(handleIncomingDraw);
+
+  // 🖊️ Start drawing
   const startDrawing = (e) => {
     const { offsetX, offsetY } = e.nativeEvent;
 
-    contextRef.current.beginPath();
-    contextRef.current.moveTo(offsetX, offsetY);
-
+    prevPoint.current = { x: offsetX, y: offsetY };
     setIsDrawing(true);
   };
 
+  // ✏️ Draw
   const draw = (e) => {
-    if (!isDrawing) return;
+    if (!isDrawing || !prevPoint.current) return;
 
     const { offsetX, offsetY } = e.nativeEvent;
 
-    contextRef.current.lineTo(offsetX, offsetY);
-    contextRef.current.stroke();
+    const currentPoint = { x: offsetX, y: offsetY };
+    const ctx = contextRef.current;
+
+    // draw locally
+    ctx.beginPath();
+    ctx.moveTo(prevPoint.current.x, prevPoint.current.y);
+    ctx.lineTo(currentPoint.x, currentPoint.y);
+    ctx.stroke();
+
+    // send to server
+    sendMessage({
+      x: currentPoint.x,
+      y: currentPoint.y,
+      prevX: prevPoint.current.x,
+      prevY: prevPoint.current.y,
+      color: isPencil ? "white" : "black",
+    });
+
+    prevPoint.current = currentPoint;
   };
 
+  // 🛑 Stop drawing
   const stopDrawing = () => {
-    contextRef.current.closePath();
     setIsDrawing(false);
+    prevPoint.current = null;
   };
 
   return (
